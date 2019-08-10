@@ -58,6 +58,7 @@ type closeableBuffer struct {
 
 // Close is to satisfy io.Closer interface
 func (b *closeableBuffer) Close() error {
+	// nothing to do
 	return nil
 }
 
@@ -69,7 +70,6 @@ func readAndReplaceReadCloser(pBody *io.ReadCloser) ([]byte, error) {
 	if body == nil {
 		return nil, nil
 	}
-	// TODO: test for body of bytes.Buffer to make this faster
 	d, err := ioutil.ReadAll(body)
 	if err != nil {
 		return nil, err
