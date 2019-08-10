@@ -206,7 +206,6 @@ func (t *CachingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	var cachedRequestBody []byte
 	rr, err := t.Cache.findCachedResponse(r, &cachedRequestBody)
 	if err != nil {
-		t.Cache.RequestsFromCache++
 		return nil, err
 	}
 
@@ -214,6 +213,7 @@ func (t *CachingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		return t.cachedRoundTrip(r, cachedRequestBody)
 	}
 
+	t.Cache.RequestsFromCache++
 	d := rr.Response
 	rsp := &http.Response{
 		Status:        "200",

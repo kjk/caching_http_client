@@ -4,17 +4,18 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/alecthomas/assert"
 )
 
-const (
-	// there's a very small chance of port conflict
-	// running explicitly on 127.0.0.1 to not trigger windows firewall
-	httpAddr = "127.0.0.1:5892"
-	httpRoot = "http://" + httpAddr
+var (
+	mu        sync.Mutex
+	startPort = 5892
+	httpAddr  = ""
+	httpRoot  = ""
 )
 
 func must(err error) {
@@ -23,34 +24,73 @@ func must(err error) {
 	}
 }
 
+func listenOnUniquePort(httpSrv *http.Server) {
+	var err error
+	// there's a very small chance of port conflict
+	for i := 0; i < 10; i++ {
+		port := startPort + i
+		mu.Lock()
+		// running explicitly on 127.0.0.1 to not trigger windows firewall
+		httpAddr = fmt.Sprintf("127.0.0.1:%d", port)
+		httpRoot = "http://" + httpAddr
+		httpSrv.Addr = httpAddr
+		mu.Unlock()
+		err := httpSrv.ListenAndServe()
+		// mute error caused by Shutdown()
+		if err == http.ErrServerClosed {
+			return
+		}
+	}
+	must(err)
+}
+
+func getHTTPRoot() string {
+	mu.Lock()
+	defer mu.Unlock()
+	return httpRoot
+}
+
+func waitForServerToStart() {
+	// wait for the server to start
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+		uri := getHTTPRoot() + "/ping"
+		req, err := http.NewRequest(http.MethodGet, uri, nil)
+		must(err)
+		rsp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			continue
+		}
+		rsp.Body.Close()
+		return
+	}
+}
+
 func startServer() func() {
-	mux := &http.ServeMux{}
 
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		rsp := fmt.Sprintf("URL: %s\n", r.URL.String())
+		uri := r.URL.String()
+		rsp := "pong"
+		if uri != "/ping" {
+			rsp = fmt.Sprintf("URL: %s\n", uri)
+		}
 		w.Write([]byte(rsp))
 	}
 
+	mux := &http.ServeMux{}
 	mux.HandleFunc("/", handler)
 	httpSrv := &http.Server{
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 5 * time.Second,
 		IdleTimeout:  120 * time.Second, // introduced in Go 1.8
 		Handler:      mux,
-		Addr:         httpAddr,
 	}
 
-	go func() {
-		err := httpSrv.ListenAndServe()
-		// mute error caused by Shutdown()
-		if err == http.ErrServerClosed {
-			err = nil
-		}
-		must(err)
-	}()
+	go listenOnUniquePort(httpSrv)
+
+	waitForServerToStart()
 
 	closeServer := func() {
-
 	}
 	return closeServer
 }
@@ -65,21 +105,42 @@ func TestDidCache(t *testing.T) {
 	cache2 := GetCache(client)
 	assert.Equal(t, cache, cache2)
 
-	uri := httpRoot + "/test"
+	uri := getHTTPRoot() + "/test"
 
-	req, err := http.NewRequest(http.MethodGet, uri, nil)
-	assert.NoError(t, err)
-	rsp, err := client.Do(req)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(cache.CachedRequests))
-	rspBody, err := ioutil.ReadAll(rsp.Body)
-	assert.NoError(t, err)
-	rsp.Body.Close()
+	var rspBody []byte
+	//var err error
+	{
+		req, err := http.NewRequest(http.MethodGet, uri, nil)
+		assert.NoError(t, err)
+		rsp, err := client.Do(req)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(cache.CachedRequests))
+		assert.Equal(t, 0, cache.RequestsFromCache)
+		assert.Equal(t, 1, cache.RequestsNotFromCache)
+		rspBody, err = ioutil.ReadAll(rsp.Body)
+		assert.NoError(t, err)
+		rsp.Body.Close()
+	}
 
-	var cachedBody []byte
-	rr, err := cache.findCachedResponse(req, &cachedBody)
-	assert.NoError(t, err)
-	assert.NotNil(t, rr)
-	assert.Equal(t, rspBody, cachedBody)
+	{
+		var cachedBody []byte
+		req, err := http.NewRequest(http.MethodGet, uri, nil)
+		assert.NoError(t, err)
+		rr, err := cache.findCachedResponse(req, &cachedBody)
+		assert.NoError(t, err)
+		assert.NotNil(t, rr)
+		assert.Equal(t, rspBody, rr.Response)
+	}
+
+	{
+		req, err := http.NewRequest(http.MethodGet, uri, nil)
+		assert.NoError(t, err)
+		rsp, err := client.Do(req)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(cache.CachedRequests))
+		assert.Equal(t, 1, cache.RequestsNotFromCache)
+		assert.Equal(t, 1, cache.RequestsFromCache)
+		rsp.Body.Close()
+	}
 
 }
