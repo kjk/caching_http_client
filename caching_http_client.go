@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// RequestsResponse is a cache entry. It remembers important details
+// RequestResponse is a cache entry. It remembers important details
 // of the request and response
 type RequestResponse struct {
 	Method string `json:"method"`
@@ -154,15 +154,19 @@ func (c *Cache) findCachedResponse(r *http.Request, cachedBody *[]byte) (*Reques
 	return nil, nil
 }
 
-// CachingTransport is a http round-tripper that implements caching
+var _ http.RoundTripper = &CachingRoundTripper{}
+
+// CachingRoundTripper is a http round-tripper that implements caching
 // of past requests
-type CachingTransport struct {
-	Cache     *Cache
-	transport http.RoundTripper
+type CachingRoundTripper struct {
+	Cache *Cache
+	// this is RoundTripper to use to make the actual request
+	// if nil, will use http.DefaultTransport
+	RoundTripper http.RoundTripper
 }
 
-func (t *CachingTransport) cachedRoundTrip(r *http.Request, cachedRequestBody []byte) (*http.Response, error) {
-	transport := t.transport
+func (t *CachingRoundTripper) cachedRoundTrip(r *http.Request, cachedRequestBody []byte) (*http.Response, error) {
+	transport := t.RoundTripper
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
@@ -202,7 +206,7 @@ func (t *CachingTransport) cachedRoundTrip(r *http.Request, cachedRequestBody []
 }
 
 // RoundTrip is to satisfy http.RoundTripper interface
-func (t *CachingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+func (t *CachingRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	var cachedRequestBody []byte
 	rr, err := t.Cache.findCachedResponse(r, &cachedRequestBody)
 	if err != nil {
@@ -225,6 +229,13 @@ func (t *CachingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return rsp, nil
 }
 
+// NewRoundTripper creates http.RoundTripper that caches requests
+func NewRoundTripper(cache *Cache) *CachingRoundTripper {
+	return &CachingRoundTripper{
+		Cache: cache,
+	}
+}
+
 // New creates http.Client
 func New(cache *Cache) *http.Client {
 	if cache == nil {
@@ -233,9 +244,9 @@ func New(cache *Cache) *http.Client {
 	c := *http.DefaultClient
 	c.Timeout = time.Second * 30
 	origTransport := c.Transport
-	c.Transport = &CachingTransport{
-		Cache:     cache,
-		transport: origTransport,
+	c.Transport = &CachingRoundTripper{
+		Cache:        cache,
+		RoundTripper: origTransport,
 	}
 	return &c
 }
@@ -249,7 +260,7 @@ func GetCache(client *http.Client) *Cache {
 	if t == nil {
 		return nil
 	}
-	if ct, ok := t.(*CachingTransport); ok {
+	if ct, ok := t.(*CachingRoundTripper); ok {
 		return ct.Cache
 	}
 	return nil
