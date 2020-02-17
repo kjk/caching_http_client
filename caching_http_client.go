@@ -231,6 +231,9 @@ func (t *CachingRoundTripper) RoundTrip(r *http.Request) (*http.Response, error)
 
 // NewRoundTripper creates http.RoundTripper that caches requests
 func NewRoundTripper(cache *Cache) *CachingRoundTripper {
+	if cache == nil {
+		cache = NewCache()
+	}
 	return &CachingRoundTripper{
 		Cache: cache,
 	}
