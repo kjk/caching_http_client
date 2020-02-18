@@ -98,7 +98,7 @@ func startServer() func() {
 func TestDidCache(t *testing.T) {
 	cancel := startServer()
 	defer cancel()
-	cache := NewCache()
+	cache := NewMemoryCache()
 	assert.Equal(t, 0, len(cache.CachedRequests))
 
 	client := New(cache)
@@ -108,6 +108,8 @@ func TestDidCache(t *testing.T) {
 	uri := getHTTPRoot() + "/test"
 
 	var rspBody []byte
+	tr := GetCachingRoundTripper(client)
+	assert.NotNil(t, tr)
 	//var err error
 	{
 		req, err := http.NewRequest(http.MethodGet, uri, nil)
@@ -115,8 +117,8 @@ func TestDidCache(t *testing.T) {
 		rsp, err := client.Do(req)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(cache.CachedRequests))
-		assert.Equal(t, 0, cache.RequestsFromCache)
-		assert.Equal(t, 1, cache.RequestsNotFromCache)
+		assert.Equal(t, 0, tr.RequestsFromCache)
+		assert.Equal(t, 1, tr.RequestsNotFromCache)
 		rspBody, err = ioutil.ReadAll(rsp.Body)
 		assert.NoError(t, err)
 		rsp.Body.Close()
@@ -126,7 +128,7 @@ func TestDidCache(t *testing.T) {
 		var cachedBody []byte
 		req, err := http.NewRequest(http.MethodGet, uri, nil)
 		assert.NoError(t, err)
-		rr, err := cache.findCachedResponse(req, &cachedBody)
+		rr, err := cache.FindCachedResponse(req, &cachedBody)
 		assert.NoError(t, err)
 		assert.NotNil(t, rr)
 		assert.Equal(t, rspBody, rr.Response)
@@ -138,8 +140,8 @@ func TestDidCache(t *testing.T) {
 		rsp, err := client.Do(req)
 		assert.NoError(t, err)
 		assert.Equal(t, 1, len(cache.CachedRequests))
-		assert.Equal(t, 1, cache.RequestsNotFromCache)
-		assert.Equal(t, 1, cache.RequestsFromCache)
+		assert.Equal(t, 1, tr.RequestsNotFromCache)
+		assert.Equal(t, 1, tr.RequestsFromCache)
 		rsp.Body.Close()
 	}
 
