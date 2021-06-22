@@ -9,4 +9,5 @@ require (
 	github.com/mattn/go-isatty v0.0.8 // indirect
 	github.com/sergi/go-diff v1.0.0 // indirect
 	github.com/stretchr/testify v1.3.0 // indirect
+	github.com/tidwall/pretty v1.2.0 // indirect
 )

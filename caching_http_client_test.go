@@ -144,5 +144,4 @@ func TestDidCache(t *testing.T) {
 		assert.Equal(t, 1, tr.RequestsFromCache)
 		rsp.Body.Close()
 	}
-
 }
